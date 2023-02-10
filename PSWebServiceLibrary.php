@@ -47,7 +47,7 @@ class PrestaShopWebservice
     /** @var string Minimal version of PrestaShop to use with this library */
     const psCompatibleVersionsMin = '1.4.0.0';
     /** @var string Maximal version of PrestaShop to use with this library */
-    const psCompatibleVersionsMax = '8.1.1';
+    const psCompatibleVersionsMax = '1.7.99.99';
 
     /**
      * PrestaShopWebservice constructor. Throw an exception when CURL is not installed/activated
@@ -87,55 +87,40 @@ class PrestaShopWebservice
 
     /**
      * Take the status code and throw an exception if the server didn't return 200 or 201 code
-     * <p>Unique parameter must take : <br><br>
-     * 'status_code' => Status code of an HTTP return<br>
-     * 'response' => CURL response
-     * </p>
      *
-     * @param array $request Response elements of CURL request
+     * @param int $status_code Status code of an HTTP return
      *
      * @throws PrestaShopWebserviceException if HTTP status code is not 200 or 201
      */
-    protected function checkStatusCode($request)
+    protected function checkStatusCode($status_code)
     {
-        switch ($request['status_code']) {
+        $error_label = 'This call to PrestaShop Web Services failed and returned an HTTP status of %d. That means: %s.';
+        switch ($status_code) {
             case 200:
             case 201:
                 break;
             case 204:
-                $error_message = 'No content';
+                throw new PrestaShopWebserviceException(sprintf($error_label, $status_code, 'No content'));
                 break;
             case 400:
-                $error_message = 'Bad Request';
+                throw new PrestaShopWebserviceException(sprintf($error_label, $status_code, 'Bad Request'));
                 break;
             case 401:
-                $error_message = 'Unauthorized';
+                throw new PrestaShopWebserviceException(sprintf($error_label, $status_code, 'Unauthorized'));
                 break;
             case 404:
-                $error_message = 'Not Found';
+                throw new PrestaShopWebserviceException(sprintf($error_label, $status_code, 'Not Found'));
                 break;
             case 405:
-                $error_message = 'Method Not Allowed';
+                throw new PrestaShopWebserviceException(sprintf($error_label, $status_code, 'Method Not Allowed'));
                 break;
             case 500:
-                $error_message = 'Internal Server Error';
+                throw new PrestaShopWebserviceException(sprintf($error_label, $status_code, 'Internal Server Error'));
                 break;
             default:
                 throw new PrestaShopWebserviceException(
-                    'This call to PrestaShop Web Services returned an unexpected HTTP status of:' . $request['status_code']
+                    'This call to PrestaShop Web Services returned an unexpected HTTP status of:' . $status_code
                 );
-        }
-
-        if (!empty($error_message)) {
-            $response = $this->parseXML($request['response']);
-            $errors = $response->children()->children();
-            if ($errors && count($errors) > 0) {
-                foreach ($errors as $error) {
-                    $error_message.= ' - (Code ' . $error->code . '): ' . $error->message;
-                }
-            }
-            $error_label = 'This call to PrestaShop Web Services failed and returned an HTTP status of %d. That means: %s.';
-            throw new PrestaShopWebserviceException(sprintf($error_label, $request['status_code'], $error_message));
         }
     }
 
@@ -152,9 +137,8 @@ class PrestaShopWebservice
             CURLOPT_HTTPAUTH => CURLAUTH_BASIC,
             CURLOPT_USERPWD => $this->key . ':',
             CURLOPT_HTTPHEADER => array('Expect:'),
-            //CURLOPT_SSL_VERIFYPEER => false, // reminder, in dev environment sometimes self-signed certificates are used
-            //CURLOPT_CAINFO => "PATH2CAINFO", // ssl certificate chain checking
-            //CURLOPT_CAPATH => "PATH2CAPATH",
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
         );
         return $defaultParams;
     }
@@ -194,7 +178,7 @@ class PrestaShopWebservice
 
         $index = strpos($response, "\r\n\r\n");
         if ($index === false && $curl_params[CURLOPT_CUSTOMREQUEST] != 'HEAD') {
-            throw new PrestaShopWebserviceException('Bad HTTP response ' . $response . curl_error($session));
+            throw new PrestaShopWebserviceException('Bad HTTP response');
         }
 
         $header = substr($response, 0, $index);
@@ -316,7 +300,7 @@ class PrestaShopWebservice
         }
         $request = $this->executeRequest($url, array(CURLOPT_CUSTOMREQUEST => 'POST', CURLOPT_POSTFIELDS => $xml));
 
-        $this->checkStatusCode($request);
+        $this->checkStatusCode($request['status_code']);
         return $this->parseXML($request['response']);
     }
 
@@ -379,8 +363,7 @@ class PrestaShopWebservice
 
         $request = $this->executeRequest($url, array(CURLOPT_CUSTOMREQUEST => 'GET'));
 
-        $this->checkStatusCode($request);// check the response validity
-
+        $this->checkStatusCode($request['status_code']);// check the response validity
         return $this->parseXML($request['response']);
     }
 
@@ -418,7 +401,7 @@ class PrestaShopWebservice
             throw new PrestaShopWebserviceException('Bad parameters given');
         }
         $request = $this->executeRequest($url, array(CURLOPT_CUSTOMREQUEST => 'HEAD', CURLOPT_NOBODY => true));
-        $this->checkStatusCode($request);// check the response validity
+        $this->checkStatusCode($request['status_code']);// check the response validity
         return $request['header'];
     }
 
@@ -438,9 +421,7 @@ class PrestaShopWebservice
     public function edit($options)
     {
         $xml = '';
-        if (isset($options['url'])) {
-            $url = $options['url'];
-        } elseif ((isset($options['resource'], $options['id']) || isset($options['url'])) && $options['putXml']) {
+        if ((isset($options['resource'], $options['id']) || isset($options['url'])) && $options['putXml']) {
             $url = (isset($options['url']) ? $options['url'] :
                 $this->url . '/api/' . $options['resource'] . '/' . $options['id']);
             $xml = $options['putXml'];
@@ -455,7 +436,7 @@ class PrestaShopWebservice
         }
 
         $request = $this->executeRequest($url, array(CURLOPT_CUSTOMREQUEST => 'PUT', CURLOPT_POSTFIELDS => $xml));
-        $this->checkStatusCode($request);// check the response validity
+        $this->checkStatusCode($request['status_code']);// check the response validity
         return $this->parseXML($request['response']);
     }
 
@@ -506,7 +487,7 @@ class PrestaShopWebservice
         }
 
         $request = $this->executeRequest($url, array(CURLOPT_CUSTOMREQUEST => 'DELETE'));
-        $this->checkStatusCode($request);// check the response validity
+        $this->checkStatusCode($request['status_code']);// check the response validity
         return true;
     }
 
